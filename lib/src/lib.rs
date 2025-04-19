@@ -1,5 +1,7 @@
 use uint::construct_uint;
+use serde::Serialize;
 construct_uint!{
+    #[derive(Serialize)]
     pub struct U256(4);
 }
 
