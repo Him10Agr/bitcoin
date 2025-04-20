@@ -1,16 +1,23 @@
 use uuid::Uuid;
 use crate::U256;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
+use crate::util::MerkleRoot;
 
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Transactions {
     pub inputs: Vec<TransactionsInput>,
     pub outputs: Vec<TransactionsOutput>
 }
 
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TransactionsInput {
     pub prev_transaction_output_hash: [u8; 32],
     pub signature: [u8; 64]
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct TransactionsOutput {
     pub value: u64,
     pub unique_id: Uuid,
@@ -30,11 +37,13 @@ impl Transactions {
         unimplemented!()
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlockHeader {
     pub timestamp: DateTime<Utc>,
     pub nonce: u64,
     pub prev_block_hash: [u8; 32],
-    pub merkle_root: [u8; 32],
+    pub merkle_root: MerkleRoot,
     pub target: U256,
 }
 
@@ -44,7 +53,7 @@ impl BlockHeader {
         timestamp: DateTime<Utc>,
         nonce: u64,
         prev_block_hash: [u8; 32],
-        merkle_root: [u8; 32],
+        merkle_root: MerkleRoot,
         target: U256,
     ) -> Self {
 
@@ -55,6 +64,8 @@ impl BlockHeader {
         unimplemented!()
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct Block {
     pub header: BlockHeader,
     pub transactions: Vec<Transactions>
@@ -77,6 +88,8 @@ impl Block {
         unimplemented!()
     }
 }
+
+#[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlockChain {
     pub blocks: Vec<Block>
 }
