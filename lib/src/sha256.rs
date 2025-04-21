@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Clone, Copy, Serialize, Deserialize, 
-            Debug, PartialEq, Eq, Hash)]
+        Debug, PartialEq, Eq, Hash)]
 pub struct Hash(U256);
 impl Hash {
 
