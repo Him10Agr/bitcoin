@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 #[derive(Clone, Copy, Serialize, Deserialize, 
-            Debug, PartialEq, Eq)]
+            Debug, PartialEq, Eq, Hash)]
 pub struct Hash(U256);
 impl Hash {
 
@@ -35,6 +35,11 @@ impl Hash {
     //zero hash
     pub fn zero() -> Self {
         return Hash(U256::zero());
+    }
+
+    pub fn as_bytes(self: &Self) -> [u8; 32] {
+        let bytes = self.0.to_little_endian();
+        return bytes.as_slice().try_into().unwrap();
     }
 }
 
