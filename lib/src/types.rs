@@ -157,19 +157,4 @@ impl BlockChain {
         return Ok(());
     }
 
-    pub fn rebuild_utxos(self: &mut Self) {
-
-        for block in &self.blocks {
-            for transaction in &block.transactions {
-                for input in &transaction.inputs {
-                    self.utxos.remove(
-                        &input.prev_transaction_output_hash,
-                    );
-                }
-                for output in transaction.outputs.iter() {
-                    self.utxos.insert(transaction.hash(), output.clone());
-                }
-            }
-        }
-    }
 }
