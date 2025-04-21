@@ -4,7 +4,6 @@ use ecdsa::{
     SigningKey,
     VerifyingKey
 };
-
 use k256::Secp256k1;
 use serde::{Deserialize, Serialize};
 use crate::sha256::Hash;
