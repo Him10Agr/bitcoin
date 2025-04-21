@@ -99,6 +99,50 @@ impl Block {
     pub fn hash(self: &Self) -> Hash {
         return Hash::hash(self);
     }
+
+    pub fn verify_transaction(self: &Self, utxos: &HashMap<Hash, 
+                            TransactionsOutput>) -> Result<()> {
+        let mut inputs: HashMap<Hash, TransactionsOutput> = HashMap::new();
+        //reject empty blocks
+        if self.transactions.is_empty() {
+            return Err(BtcError::InvalidTransaction);
+        }
+        for transaction in &self.transactions {
+            let mut input_value = 0;
+            let mut output_value = 0;
+            for input in &transaction.inputs {
+                let prev_output = utxos.get(
+                    &input.prev_transaction_output_hash,
+                );
+                if prev_output.is_none() {
+                    return Err(BtcError::InvalidTransaction);
+                }
+                let prev_output = prev_output.unwrap();
+                //preventing same block double spending
+                if inputs.contains_key(&input.prev_transaction_output_hash) {
+                    return Err(BtcError::InvalidTransaction);
+                }
+                //signature validation
+                if !input.signature.verify(&input.prev_transaction_output_hash, &prev_output.pubkey) {
+                    return Err(BtcError::InvalidTransaction);
+                }
+
+                input_value += prev_output.value;
+                inputs.insert(input.prev_transaction_output_hash, prev_output.clone());
+            }
+            
+            for output in &transaction.outputs {
+                output_value += output.value;
+            }
+
+            //output_value less than input_value is the fee for the miner
+            if input_value < output_value {
+                return Err(BtcError::InvalidTransaction);
+            }
+        }
+
+        return Ok(());
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
