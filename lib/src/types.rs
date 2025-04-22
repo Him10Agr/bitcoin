@@ -76,6 +76,26 @@ impl BlockHeader {
     pub fn hash(self: &Self) -> Hash {
         return Hash::hash(self);
     }
+
+    pub fn mine(self: &mut Self, steps: usize) -> bool {
+        //if block already matches target
+        if self.hash().matches_target(self.target) {
+            return true;
+        }
+        for _ in 0..steps {
+            if let Some(new_nonce) = self.nonce.checked_add(1) {
+                self.nonce = new_nonce;
+            } else {
+                self.nonce = 0;
+                self.timestamp = Utc::now();
+            }
+
+            if self.hash().matches_target(self.target) {
+                return true;
+            }
+        }
+        return false;
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
