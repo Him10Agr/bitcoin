@@ -49,8 +49,6 @@ impl Transactions {
     }
 }
 
-
-
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlockHeader {
     pub timestamp: DateTime<Utc>,
@@ -256,9 +254,11 @@ impl Block {
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlockChain {
-    pub utxos: HashMap<Hash, TransactionsOutput>,
-    pub target: U256,
-    pub blocks: Vec<Block>
+    utxos: HashMap<Hash, (bool, TransactionsOutput)>,
+    target: U256,
+    blocks: Vec<Block>,
+    #[serde(default, skip_serializing)]
+    mempool: Vec<Transactions>
 }
 
 impl BlockChain {
@@ -266,7 +266,29 @@ impl BlockChain {
     pub fn new() -> Self {
         return BlockChain{utxos: HashMap::new(),
                           target: crate::MIN_TARGET,
-                          blocks: Vec::new()};
+                          blocks: Vec::new(),
+                          mempool: Vec::new()};
+    }
+
+    pub fn utxos(self: &Self) -> &HashMap<Hash, (bool, TransactionsOutput)> {
+        return &self.utxos;
+    }
+
+    pub fn target(self: &Self) -> U256 {
+        return self.target;
+    }
+
+    pub fn blocks(self: &Self) -> impl Iterator<Item = &Block> {
+        return self.blocks.iter();
+    }
+
+    pub fn block_height(self: &Self) -> u64 {
+        return self.blocks.len() as u64;
+    }
+
+    pub fn mempool(self: &Self) -> &[Transactions] {
+        //need to implement time tracking
+        return &self.mempool;
     }
 
     pub fn add_block(self: &mut Self, block: Block) -> Result<()> {
@@ -307,7 +329,8 @@ impl BlockChain {
             }
 
             //verify all transactions in the block
-            todo!();
+            block.verify_transaction(self.block_height()
+                            , &self.utxos)?;
         }
 
         //Remove tx from mempool that are now in the block
@@ -392,5 +415,58 @@ impl BlockChain {
         //set it to the minmum target
         self.target = new_target.min(crate::MIN_TARGET);
 
+    }
+
+    pub fn add_to_mempool(self: &mut Self, transaction: Transactions) -> Result<()> {
+
+        //validation pf tx before insertion
+        //all inputs must match known UTXO's and must be unique
+        let mut known_inputs = HashSet::new();
+        for input in &transaction.inputs {
+            if !self.utxos.contains_key(
+                &input.prev_transaction_output_hash,
+            ) {
+                return Err(BtcError::InvalidTransaction);
+            }
+            if known_inputs.contains(
+                &input.prev_transaction_output_hash
+            ) {
+                return Err(BtcError::InvalidTransaction);
+            }
+            known_inputs.insert(input.prev_transaction_output_hash);
+        }
+
+        //all inputs must be lower than all outputs
+        let all_inputs = transaction.inputs.iter()
+                                .map(|input| {
+                                        self.utxos.get(&input.prev_transaction_output_hash)
+                                        .expect("BUG: Impossible")
+                                        .1.value
+                                }).sum::<u64>();
+
+        let all_outputs = transaction.outputs.iter()
+                                    .map(|output| output.value)
+                                    .sum();
+        
+        if all_inputs < all_outputs {
+            return Err(BtcError::InvalidTransaction);
+        }
+        self.mempool.push(transaction);
+        //sort by miner fee
+        self.mempool.sort_by_key(|transaction| {
+            let all_inputs = transaction.inputs.iter()
+                                    .map(|input| {
+                                        self.utxos.get(&input.prev_transaction_output_hash)
+                                        .expect("BUG: Impossible")
+                                        .1.value
+                                    }).sum::<u64>();
+            
+            let all_outputs: u64 = transaction.outputs.iter()
+                                    .map(|output| output.value)
+                                    .sum();
+            let miner_fee = all_inputs - all_outputs;
+            return miner_fee;
+        });
+        return Ok(());                 
     }
 }
