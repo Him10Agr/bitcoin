@@ -122,7 +122,7 @@ impl Block {
     pub fn verify_transaction(self: &Self, 
                             predicted_block_height: u64,
                             utxos: &HashMap<Hash, 
-                            TransactionsOutput>) -> Result<()> {
+                            (bool, TransactionsOutput)>) -> Result<()> {
         let mut inputs: HashMap<Hash, TransactionsOutput> = HashMap::new();
         //reject empty blocks
         if self.transactions.is_empty() {
@@ -137,7 +137,7 @@ impl Block {
             for input in &transaction.inputs {
                 let prev_output = utxos.get(
                     &input.prev_transaction_output_hash,
-                );
+                ).map(|(_, output)| output);
                 if prev_output.is_none() {
                     return Err(BtcError::InvalidTransaction);
                 }
@@ -170,7 +170,7 @@ impl Block {
 
     pub fn verify_coinbase_transaction(self: &Self, 
         predicted_block_height: u64,
-        utxos: &HashMap<Hash, TransactionsOutput>
+        utxos: &HashMap<Hash, (bool, TransactionsOutput)>
     ) -> Result<()> {
         //coinbase tx is the first tx in the block
         let coinbase_transaction = &self.transactions[0];
@@ -204,7 +204,7 @@ impl Block {
 
     pub fn calculate_miner_fees(
         self: &Self,
-        utxos: &HashMap<Hash, TransactionsOutput>
+        utxos: &HashMap<Hash, (bool, TransactionsOutput)>
     ) -> Result<u64> {
         let mut inputs: HashMap<Hash, TransactionsOutput> = HashMap::new();
         let mut outputs: HashMap<Hash, TransactionsOutput> = HashMap::new();
@@ -217,7 +217,7 @@ impl Block {
                 to outptuts*/
                 let prev_output = utxos.get(
                     &input.prev_transaction_output_hash
-                );
+                ).map(|(_, output)| output);
                 if prev_output.is_none() {
                     return Err(BtcError::InvalidTransaction);
                 }
@@ -258,7 +258,7 @@ pub struct BlockChain {
     target: U256,
     blocks: Vec<Block>,
     #[serde(default, skip_serializing)]
-    mempool: Vec<Transactions>
+    mempool: Vec<(DateTime<Utc>, Transactions)>
 }
 
 impl BlockChain {
@@ -286,7 +286,7 @@ impl BlockChain {
         return self.blocks.len() as u64;
     }
 
-    pub fn mempool(self: &Self) -> &[Transactions] {
+    pub fn mempool(self: &Self) -> &[(DateTime<Utc>, Transactions)] {
         //need to implement time tracking
         return &self.mempool;
     }
@@ -357,7 +357,7 @@ impl BlockChain {
                     );
                 }
                 for output in transaction.outputs.iter() {
-                    self.utxos.insert(transaction.hash(), output.clone());
+                    self.utxos.insert(output.hash(), (false, output.clone()));
                 }
             }
         }
@@ -426,14 +426,51 @@ impl BlockChain {
             if !self.utxos.contains_key(
                 &input.prev_transaction_output_hash,
             ) {
+                println!("Utxos not found");
+                dbg!(&self.utxos());
                 return Err(BtcError::InvalidTransaction);
             }
             if known_inputs.contains(
                 &input.prev_transaction_output_hash
             ) {
+                println!("Duplicate input");
                 return Err(BtcError::InvalidTransaction);
             }
             known_inputs.insert(input.prev_transaction_output_hash);
+        }
+
+        /*if any utxos have bool set to true find the tx that ref them in mempool
+        , remove it, and set all the utxos it references to false*/
+        for input in &transaction.inputs {
+            if let Some((true, _)) = self.utxos.get(&input.prev_transaction_output_hash) {
+                /*tx that ref the utxos we are trying to ref*/
+                let ref_tx = self.mempool.iter().enumerate()
+                                                                .find(|(_, (_, tx))| {
+                                                                    tx.outputs.iter().any(|output| {
+                                                                        output.hash() == input.prev_transaction_output_hash
+                                                                    })
+                                                                });
+                
+                //unmark utxos if found
+                if let Some((idx,( _, ref_tx))) = ref_tx {
+                    for input in &ref_tx.inputs {
+                        //setting all utxos from this tx to false
+                        self.utxos.entry(input.prev_transaction_output_hash)
+                        .and_modify(|(marked, _)| {
+                            *marked = false;
+                        });
+                    }
+                    //remove the tx from mempool
+                    self.mempool.remove(idx);
+                } else {
+                    //if somehow there is no matching tx
+                    //set this utxo to false
+                    self.utxos.entry(input.prev_transaction_output_hash)
+                    .and_modify(|(marked, _)| {
+                        *marked = false;
+                    });
+                }
+            }
         }
 
         //all inputs must be lower than all outputs
@@ -449,11 +486,22 @@ impl BlockChain {
                                     .sum();
         
         if all_inputs < all_outputs {
+            println!("Inputs are lower than outputs");
             return Err(BtcError::InvalidTransaction);
         }
-        self.mempool.push(transaction);
+
+        //Marking Utxos as used
+        for input in &transaction.inputs {
+            self.utxos.entry(input.prev_transaction_output_hash)
+                    .and_modify(|(marked, _)| {
+                        *marked = true;
+                    });
+        }
+
+        //push tx to mempool
+        self.mempool.push((Utc::now(), transaction));
         //sort by miner fee
-        self.mempool.sort_by_key(|transaction| {
+        self.mempool.sort_by_key(|(_, transaction)| {
             let all_inputs = transaction.inputs.iter()
                                     .map(|input| {
                                         self.utxos.get(&input.prev_transaction_output_hash)
@@ -468,5 +516,31 @@ impl BlockChain {
             return miner_fee;
         });
         return Ok(());                 
+    }
+
+    //remove tx older than MAX_MEMPOOL_TX_AGE
+    pub fn cleanup_mempool(self: &mut Self) {
+        let now = Utc::now();
+        let mut utxos_hashes_to_unmark: Vec<Hash> = Vec::new();
+        self.mempool.retain(|(timestamp, tx)| {
+            if now - *timestamp > chrono::Duration::seconds(crate::MAX_MEMPOOL_TRANSACTION_AGE as i64) {
+                //push all utxos to unmark to the vector to be unmarked later
+                utxos_hashes_to_unmark.extend(tx.inputs.iter().map(
+                    |input| {
+                        input.prev_transaction_output_hash
+                    },
+                ));
+                false
+            } else {
+                true
+            }
+        });
+
+        //unmark all the utxos
+        for hash in utxos_hashes_to_unmark {
+            self.utxos.entry(hash).and_modify(|(marked, _)| {
+                *marked = false;
+            },);
+        }
     }
 }
