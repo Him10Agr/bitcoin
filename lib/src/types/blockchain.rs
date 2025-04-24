@@ -6,10 +6,14 @@ use crate::sha256::Hash;
 use crate::error::{BtcError, Result};
 use std::collections::{HashMap, HashSet};
 use bigdecimal::BigDecimal;
+use std::io::{Error as IOError, ErrorKind as IOErrorKind, Read,
+    Result as IOResult, Write};
 
 
 use super::{Transactions, TransactionsOutput};
 use super::Block;
+use crate::util::Saveable;
+
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlockChain {
@@ -301,5 +305,22 @@ impl BlockChain {
                 *marked = false;
             },);
         }
+    }
+}
+
+impl Saveable for BlockChain {
+
+    fn load<I: Read>(reader: I) -> IOResult<Self> {
+        ciborium::de::from_reader(reader).map_err(|_| {
+            IOError::new(IOErrorKind::InvalidData,
+            "Failed to deserialize Blockchain")
+        })
+    }
+
+    fn save<O: Write>(self: &Self, writer: O) -> IOResult<()> {
+        ciborium::ser::into_writer(self, writer).map_err(|_| {
+            IOError::new(IOErrorKind::InvalidData,
+            "Failed to serialize Blockchain")
+        })
     }
 }

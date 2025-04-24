@@ -5,9 +5,11 @@ use crate::util::MerkleRoot;
 use crate::sha256::Hash;
 use crate::error::{BtcError, Result};
 use std::collections::HashMap;
+use std::io::{Error as IOError, ErrorKind as IOErrorKind, Read,
+    Result as IOResult, Write};
 
 use super::{Transactions, TransactionsOutput};
-
+use crate::util::Saveable;
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
 pub struct BlockHeader {
@@ -209,5 +211,22 @@ impl Block {
                                 .sum();
         
         return Ok(input_value - output_value);
+    }
+}
+
+impl Saveable for Block {
+
+    fn load<I: Read>(reader: I) -> IOResult<Self> {
+        ciborium::de::from_reader(reader).map_err(|_| {
+            IOError::new(IOErrorKind::InvalidData,
+            "Failed to desrialize Block")
+        })
+    }
+
+    fn save<O: Write>(self: &Self, writer: O) -> IOResult<()> {
+        ciborium::ser::into_writer(self, writer).map_err(|_| {
+            IOError::new(IOErrorKind::InvalidData,
+            "Failed to serialize Block")
+        })
     }
 }

@@ -31,7 +31,17 @@ impl MerkleRoot {
     }
 }
 
-pub trait Saveable {
-    fn load<I: Read>(self: &Self, reader: I);
-    fn save<O: Write>(self: &Self, writer: O);
+pub trait Saveable 
+where 
+    Self: Sized{
+    fn load<I: Read>(reader: I) -> IOResult<Self>;
+    fn save<O: Write>(self: &Self, writer: O) -> IOResult<()>;
+    fn save_to_file<P: AsRef<Path>>(self: &Self, path: P) -> IOResult<()> {
+        let file = File::create(&path)?;
+        return self.save(file);
+    }
+    fn load_from_file<P: AsRef<Path>>(path: P) -> IOResult<Self> {
+        let file = File::open(&path)?;
+        return Self::load(file);
+    }
 }
