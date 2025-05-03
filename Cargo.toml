@@ -11,3 +11,4 @@ members = ["lib", "miner", "node", "wallet"]
 log = "0.4.27"
 serde = "1.0.219"
 serde_json = "1.0.140"
+futures = "0.3.31"
